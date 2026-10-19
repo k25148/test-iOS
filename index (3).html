@@ -1,0 +1,376 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>demotopassAR</title>
+
+  <!-- A-Frame -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+
+  <!-- MindAR -->
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    a-scene {
+      position: fixed !important;
+      inset: 0;
+      width: 100% !important;
+      height: 100% !important;
+      background: transparent !important;
+    }
+
+    a-scene canvas {
+      background: transparent !important;
+    }
+
+    #soundButton {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 99999;
+      padding: 12px 20px;
+      font-size: 16px;
+      color: white;
+      background: #1769aa;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+
+    #status {
+      position: fixed;
+      left: 10px;
+      bottom: 12px;
+      z-index: 99999;
+      max-width: calc(100% - 20px);
+      padding: 8px 12px;
+      color: white;
+      background: rgba(0, 0, 0, 0.7);
+      border-radius: 6px;
+      font-size: 13px;
+      pointer-events: none;
+    }
+  </style>
+
+  <script>
+    AFRAME.registerComponent("white-transparent-video", {
+      schema: {
+        src: { type: "selector" }
+      },
+
+      init: function () {
+        const video = this.data.src;
+
+        if (!video) {
+          console.error("動画要素が見つかりません");
+          return;
+        }
+
+        const texture = new THREE.VideoTexture(video);
+
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
+
+        if (
+          "colorSpace" in texture &&
+          THREE.SRGBColorSpace !== undefined
+        ) {
+          texture.colorSpace = THREE.SRGBColorSpace;
+        }
+
+        const vertexShader = `
+          varying vec2 vUv;
+
+          void main() {
+            vUv = uv;
+            gl_Position =
+              projectionMatrix *
+              modelViewMatrix *
+              vec4(position, 1.0);
+          }
+        `;
+
+        const fragmentShader = `
+          uniform sampler2D uVideo;
+          uniform float uThreshold;
+          uniform float uSoftness;
+
+          varying vec2 vUv;
+
+          void main() {
+            vec4 color = texture2D(uVideo, vUv);
+
+            float whiteness = min(
+              color.r,
+              min(color.g, color.b)
+            );
+
+            float alpha = 1.0 - smoothstep(
+              uThreshold - uSoftness,
+              uThreshold + uSoftness,
+              whiteness
+            );
+
+            if (alpha < 0.01) {
+              discard;
+            }
+
+            gl_FragColor = vec4(color.rgb, alpha);
+          }
+        `;
+
+        const material = new THREE.ShaderMaterial({
+          uniforms: {
+            uVideo: { value: texture },
+            uThreshold: { value: 0.85 },
+            uSoftness: { value: 0.08 }
+          },
+
+          vertexShader: vertexShader,
+          fragmentShader: fragmentShader,
+
+          transparent: true,
+          premultipliedAlpha: false,
+          blending: THREE.NormalBlending,
+          depthWrite: false,
+          depthTest: true,
+          side: THREE.DoubleSide
+        });
+
+        const geometry = new THREE.PlaneGeometry(1, 1.7778);
+
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.renderOrder = 10;
+
+        this.el.setObject3D("mesh", mesh);
+
+        this.texture = texture;
+        this.material = material;
+        this.mesh = mesh;
+
+        console.log("白抜き動画メッシュ作成完了");
+      },
+
+      remove: function () {
+        if (this.texture) this.texture.dispose();
+        if (this.material) this.material.dispose();
+        if (this.mesh) this.mesh.geometry.dispose();
+
+        this.el.removeObject3D("mesh");
+      }
+    });
+  </script>
+</head>
+
+<body>
+
+  <button id="soundButton" type="button">
+    音声をONにする
+  </button>
+
+  <div id="status">初期化中...</div>
+
+  <a-scene
+    mindar-image="imageTargetSrc: targets.mind;"
+    embedded
+    color-space="sRGB"
+    renderer="colorManagement: true; alpha: true; antialias: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false">
+
+    <a-assets>
+      <video
+        id="demoVideo"
+        src="https://pub-ea83f2fd21904eceaa0a3917e464aaf5.r2.dev/demotopass_alpha_H.265.mov"
+        preload="auto"
+        loop
+        playsinline
+        webkit-playsinline
+        muted
+        crossorigin="anonymous">
+      </video>
+
+      <audio
+        id="demoAudio"
+        src="https://pub-ea83f2fd21904eceaa0a3917e464aaf5.r2.dev/demoaudio.mp3"
+        preload="auto"
+        loop>
+      </audio>
+    </a-assets>
+
+    <a-camera
+      position="0 0 0"
+      look-controls="enabled: false">
+    </a-camera>
+
+    <a-entity
+      id="target"
+      mindar-image-target="targetIndex: 0">
+
+      <a-entity
+        id="teacherVideo"
+        white-transparent-video="src: #demoVideo"
+        position="0 0 0">
+      </a-entity>
+
+    </a-entity>
+  </a-scene>
+
+  <script>
+    const video = document.querySelector("#demoVideo");
+    const audio = document.querySelector("#demoAudio");
+    const target = document.querySelector("#target");
+    const scene = document.querySelector("a-scene");
+    const soundButton = document.querySelector("#soundButton");
+    const status = document.querySelector("#status");
+
+    let soundEnabled = false;
+    let targetVisible = false;
+    let playbackRequest = 0;
+
+    video.muted = true;
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
+
+    function setStatus(message) {
+      status.textContent = message;
+      console.log(message);
+    }
+
+    // シーン初期化
+    scene.addEventListener("loaded", () => {
+      const renderer = scene.renderer;
+
+      if (renderer) {
+        renderer.setClearColor(0x000000, 0);
+        renderer.setClearAlpha(0);
+      }
+
+      setStatus("準備完了。先生の写真を映してください。");
+    });
+
+    // 動画読み込み確認
+    video.addEventListener("loadedmetadata", () => {
+      console.log(
+        "動画サイズ:",
+        video.videoWidth,
+        "x",
+        video.videoHeight
+      );
+    });
+
+    video.addEventListener("error", () => {
+      console.error("動画読み込みエラー:", video.error);
+      setStatus("動画を読み込めません。ファイル名を確認してください。");
+    });
+
+    // 音声読み込み確認
+    audio.addEventListener("error", () => {
+      console.error("音声読み込みエラー:", audio.error);
+      setStatus("音声を読み込めません。demo_audio.mp3を確認してください。");
+    });
+
+    // 再生開始
+    async function startPlayback() {
+      const request = ++playbackRequest;
+
+      video.currentTime = 0;
+      audio.currentTime = 0;
+      video.muted = !soundEnabled;
+
+      try {
+        const tasks = [video.play()];
+
+        if (soundEnabled) {
+          tasks.push(audio.play());
+        } else {
+          audio.pause();
+        }
+
+        await Promise.all(tasks);
+
+        // 再生中に写真を見失っていないか確認
+        if (request !== playbackRequest || !targetVisible) {
+          video.pause();
+          audio.pause();
+          return;
+        }
+
+        setStatus(
+          soundEnabled
+            ? "映像・音声を再生中"
+            : "映像を再生中（音声OFF）"
+        );
+      } catch (error) {
+        console.error("再生エラー:", error);
+        setStatus("再生エラー。音声ボタンを押して確認してください。");
+      }
+    }
+
+    // 写真を認識
+    target.addEventListener("targetFound", () => {
+      targetVisible = true;
+      setStatus("先生の写真を認識しました");
+      startPlayback();
+    });
+
+    // 写真を見失ったら停止
+    target.addEventListener("targetLost", () => {
+      targetVisible = false;
+      playbackRequest++;
+
+      video.pause();
+      audio.pause();
+
+      setStatus("写真を探しています...");
+    });
+
+    // ユーザー操作で音声を有効化
+    soundButton.addEventListener("click", async () => {
+      soundEnabled = true;
+      video.muted = false;
+      video.volume = 1;
+      audio.volume = 1;
+
+      soundButton.textContent = "音声ON";
+
+      if (targetVisible) {
+        // 写真を認識中なら映像と音声を再スタート
+        await startPlayback();
+      } else {
+        setStatus("音声ON。先生の写真を認識してください。");
+      }
+    });
+
+    video.addEventListener("playing", () => {
+      console.log("動画再生開始");
+    });
+
+    audio.addEventListener("playing", () => {
+      console.log("音声再生開始");
+    });
+
+    scene.addEventListener("renderstart", () => {
+      console.log("レンダリング開始");
+    });
+  </script>
+
+</body>
+</html>
