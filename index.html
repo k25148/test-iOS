@@ -117,7 +117,7 @@
             vec4 color = texture2D(uVideo, vUv);
 
             float greenStrength =
-              color.g - max(color.r, color.b)
+              color.g - max(color.r, color.b);
 
             float alpha = 1.0 - smoothstep(
               uThreshold - uSoftness,
